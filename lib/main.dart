@@ -2306,7 +2306,7 @@ class _AppleMusicMainScreenState extends State<AppleMusicMainScreen> {
                               ),
                             ),
                           ),
-                        ),
+                        );
                       }).toList(),
                     ),
                   ),
