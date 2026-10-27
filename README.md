@@ -1,58 +1,54 @@
-# 🎵 Apple Music Experience (Flutter)
+# 🎵 app_musica (Flutter)
 
-Aplicación móvil de música de alto rendimiento inspirada en el diseño moderno de **Apple Music (Dark Mode)**, desarrollada en **Flutter** con arquitectura desacoplada basada en el **Patrón Mediador (Mediator Pattern)**.
+Experiencia demo inspirada en **Apple Music (dark mode)** con catálogo amplio, filtros en sticky header, mini-reproductor, favoritos, cola, **DJ Mix** y **Radio IA** local sin credenciales externas.
 
----
+## ✅ Qué está implementado
 
-## ✨ Características Principales
+- Navegación principal: **Escuchar, DJ Mix, Radio IA, Biblioteca, Buscar**.
+- **Mediator Pattern** (`MusicPlaybackMediator`) para coordinar reproducción, cola, mix y radio.
+- Catálogo demo de **120 canciones** con metadata (género, BPM, segmentos).
+- Filtros rápidos + búsqueda por **título, artista, álbum y BPM**.
+- Favoritos en sesión (`Set<String>`).
+- Mini-player y reproductor completo con:
+  - play/pause, next/previous
+  - seek y volumen
+  - **shuffle**
+  - **repeat** (`off` → `all` → `one`)
+- Cola demo visible en Biblioteca (vista “up next”).
+- DJ Mix con bucles por segmento y repetición configurable.
+- Radio IA demo con locutor virtual y cápsulas temporizadas por duración real de cada cápsula.
 
-1. **Patrón Mediador (`MusicPlaybackMediator`)**:
-   - Desacoplamiento total entre componentes:
-     - `QueueHandler`: Gestión de catálogo, cola de reproducción y favoritos.
-     - `SnippetLoopHandler`: Motor de mezcla DJ, segmentación de fragmentos virales y bucles 3x con sincronización de BPM.
-     - `AiRadioHostHandler`: Emisora de Radio continua con locutor virtual inteligente (Turing DJ) que introduce reflexiones y cápsulas técnicas para Ingeniería de Sistemas.
+## 🧱 Arquitectura breve
 
-2. **Buscador y Filtro Inteligente en Playlist (Sticky Header)**:
-   - Cabecera fija con efecto vidrio esmerilado (*glassmorphism blur*) que se mantiene visible al scrollear.
-   - Protección dinámica frente al notch, Dynamic Island (iOS) y barra de estado / punch-hole (Android) mediante `MediaQuery.paddingOf(context).top`.
-   - Filtro instantáneo por texto (título, artista, álbum, BPM) y chips de categorías (`Todas`, `Favoritas ⭐`, `Focus Tech`, `Electrónica`, `Synthwave`, `Pop`, `Rock`, `Urbano`, `Hip-Hop`, `BPM > 120`).
-   - Botón flotante de retorno rápido al inicio `[ 🔍 Buscar en lista | ⬆️ ]`.
+- `QueueHandler`: biblioteca, cola, favoritos, shuffle/repeat y entidades derivadas (artistas/álbumes/géneros).
+- `SnippetLoopHandler`: lógica de mix por segmentos y bucles.
+- `AiRadioHostHandler`: emisoras, cápsulas del locutor y temporización.
+- `MusicPlaybackMediator`: punto único de orquestación por eventos (`PlaybackEvent`) + `ChangeNotifier` para UI.
 
-3. **Catálogo Extendido (120+ Canciones)**:
-   - Conjunto realista y diverso de más de 120 canciones de prueba distribuidas en múltiples géneros musicales para verificar el comportamiento de listas extensas.
-
-4. **Navegación Flotante Moderna**:
-   - Barra de menú inferior estilo pastilla flotante (*floating pill dock*) con micro-animaciones, sombras y desenfoque translúcido.
-   - Mini-reproductor interactivo flotante con controles rápidos y acceso directo.
-
----
-
-## 🚀 Cómo Ejecutar el Proyecto
-
-### Requisitos
-- Flutter SDK (3.x o superior)
-- Xcode (para simulador / dispositivo iOS)
-- Android Studio / Android SDK (para emulador o dispositivo Android)
-
-### Comandos
+## 🚀 Ejecutar
 
 ```bash
-# Obtener dependencias
 flutter pub get
-
-# Ejecutar pruebas unitarias y de widgets
-flutter test
-
-# Ejecutar análisis de código
-flutter analyze
-
-# Iniciar la aplicación
 flutter run
 ```
 
----
+## 🧪 Calidad
 
-## 🛠️ Tecnologías y Arquitectura
-- **Framework**: Flutter / Dart
-- **Arquitectura**: Mediator Pattern (Event-driven notification system)
-- **UI/UX**: Custom sliver headers, BackdropFilter, Cupertino & Material Design tokens.
+```bash
+flutter analyze
+flutter test
+```
+
+En este entorno de automatización puede no existir Flutter SDK (`flutter: command not found`), por lo que esos comandos deben correrse localmente o en CI con Flutter instalado.
+
+## ⚠️ Limitaciones actuales (sin backend/audio real)
+
+- Reproducción **simulada** (sin streaming real ni archivos de audio externos).
+- Radio IA y DJ Mix son experiencias demo locales.
+- No se usan APIs externas ni credenciales.
+
+## 🔜 Próximos pasos recomendados
+
+- Persistencia local opcional de favoritos/cola (por ejemplo `shared_preferences`).
+- Integrar motor de audio real (p. ej. `just_audio`) con archivos/licencias válidas.
+- Expandir pruebas unitarias de handlers y mediator para casos edge adicionales.
