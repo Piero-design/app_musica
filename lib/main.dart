@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 
@@ -11,6 +12,7 @@ void main() {
 // ============================================================================
 
 enum PlaybackMode { standard, snippetMix, aiRadio }
+enum RepeatMode { off, all, one }
 
 class SongSegment {
   final String name;
@@ -54,6 +56,32 @@ class Song {
     required this.bpm,
     required this.segments,
   });
+}
+
+class Artist {
+  final String id;
+  final String name;
+
+  const Artist({required this.id, required this.name});
+}
+
+class Album {
+  final String id;
+  final String title;
+  final String artistName;
+
+  const Album({
+    required this.id,
+    required this.title,
+    required this.artistName,
+  });
+}
+
+class GenreTag {
+  final String id;
+  final String name;
+
+  const GenreTag({required this.id, required this.name});
 }
 
 class MixItem {
@@ -129,6 +157,8 @@ enum PlaybackEvent {
   changeLoopCount,
   changeSnippetSegment,
   addSongToMix,
+  toggleShuffle,
+  cycleRepeatMode,
 }
 
 abstract class IPlaybackMediator {
@@ -142,28 +172,102 @@ abstract class IPlaybackMediator {
 /// Manejador de la Cola y Biblioteca de Canciones (Single Responsibility)
 class QueueHandler {
   final List<Song> library;
+  final List<Song> queue;
   final Set<String> favoriteSongIds = {'1', '2'};
+  final Random _random = Random();
+  bool isShuffleEnabled = false;
+  RepeatMode repeatMode = RepeatMode.off;
+  int _currentQueueIndex = 0;
   late Song currentSong;
 
-  QueueHandler({required this.library}) {
-    currentSong = library.first;
+  QueueHandler({required this.library}) : queue = List<Song>.from(library) {
+    currentSong = queue.first;
+  }
+
+  List<Artist> get artists {
+    final seen = <String>{};
+    return library.where((song) => seen.add(song.artist)).map((song) {
+      return Artist(id: 'artist_${song.artist}', name: song.artist);
+    }).toList(growable: false);
+  }
+
+  List<Album> get albums {
+    final seen = <String>{};
+    return library.where((song) => seen.add(song.album)).map((song) {
+      return Album(
+        id: 'album_${song.album}',
+        title: song.album,
+        artistName: song.artist,
+      );
+    }).toList(growable: false);
+  }
+
+  List<GenreTag> get genres {
+    final seen = <String>{};
+    return library.where((song) => seen.add(song.genre)).map((song) {
+      return GenreTag(id: 'genre_${song.genre}', name: song.genre);
+    }).toList(growable: false);
   }
 
   void selectSong(Song song) {
     currentSong = song;
+    final queueIndex = queue.indexWhere((s) => s.id == song.id);
+    if (queueIndex != -1) {
+      _currentQueueIndex = queueIndex;
+    }
   }
 
-  Song getNextSong() {
-    final currentIndex = library.indexWhere((s) => s.id == currentSong.id);
-    final nextIndex = (currentIndex + 1) % library.length;
-    currentSong = library[nextIndex];
+  Song? getNextSong() {
+    if (queue.isEmpty) return null;
+    if (repeatMode == RepeatMode.one) return currentSong;
+
+    if (isShuffleEnabled && queue.length > 1) {
+      var nextIndex = _currentQueueIndex;
+      while (nextIndex == _currentQueueIndex) {
+        nextIndex = _random.nextInt(queue.length);
+      }
+      _currentQueueIndex = nextIndex;
+      currentSong = queue[_currentQueueIndex];
+      return currentSong;
+    }
+
+    final isLastSong = _currentQueueIndex >= queue.length - 1;
+    if (isLastSong) {
+      if (repeatMode == RepeatMode.all) {
+        _currentQueueIndex = 0;
+        currentSong = queue[_currentQueueIndex];
+        return currentSong;
+      }
+      return null;
+    }
+
+    _currentQueueIndex++;
+    currentSong = queue[_currentQueueIndex];
     return currentSong;
   }
 
   Song getPreviousSong() {
-    final currentIndex = library.indexWhere((s) => s.id == currentSong.id);
-    final prevIndex = (currentIndex - 1 + library.length) % library.length;
-    currentSong = library[prevIndex];
+    if (queue.isEmpty || repeatMode == RepeatMode.one) return currentSong;
+
+    if (isShuffleEnabled && queue.length > 1) {
+      var previousIndex = _currentQueueIndex;
+      while (previousIndex == _currentQueueIndex) {
+        previousIndex = _random.nextInt(queue.length);
+      }
+      _currentQueueIndex = previousIndex;
+      currentSong = queue[_currentQueueIndex];
+      return currentSong;
+    }
+
+    if (_currentQueueIndex == 0) {
+      if (repeatMode == RepeatMode.all) {
+        _currentQueueIndex = queue.length - 1;
+      }
+    } else {
+      _currentQueueIndex--;
+    }
+
+    currentSong = queue[_currentQueueIndex];
     return currentSong;
   }
 
@@ -173,6 +277,18 @@ class QueueHandler {
     } else {
       favoriteSongIds.add(songId);
     }
+  }
+
+  void toggleShuffle() {
+    isShuffleEnabled = !isShuffleEnabled;
+  }
+
+  void cycleRepeatMode() {
+    repeatMode = switch (repeatMode) {
+      RepeatMode.off => RepeatMode.all,
+      RepeatMode.all => RepeatMode.one,
+      RepeatMode.one => RepeatMode.off,
+    };
   }
 }
 
@@ -278,7 +394,7 @@ class AiRadioHostHandler {
     isHostSpeaking = true;
     activeCapsule = (capsules.toList()..shuffle()).first;
 
-    _speechTimer = Timer(const Duration(seconds: 4), () {
+    _speechTimer = Timer(Duration(seconds: activeCapsule!.durationSeconds), () {
       isHostSpeaking = false;
       activeCapsule = null;
       onSpeechFinished();
@@ -323,6 +439,8 @@ class MusicPlaybackMediator extends ChangeNotifier implements IPlaybackMediator 
   Song get currentSong => _mode == PlaybackMode.snippetMix
       ? snippetHandler.currentItem.song
       : queueHandler.currentSong;
+  bool get isShuffleEnabled => queueHandler.isShuffleEnabled;
+  RepeatMode get repeatMode => queueHandler.repeatMode;
 
   void _startTicker() {
     _playbackTicker = Timer.periodic(const Duration(milliseconds: 500), (timer) {
@@ -412,8 +530,13 @@ class MusicPlaybackMediator extends ChangeNotifier implements IPlaybackMediator 
             notifyListeners();
           });
         } else {
-          queueHandler.getNextSong();
-          _currentProgressSeconds = 0.0;
+          final nextSong = queueHandler.getNextSong();
+          if (nextSong == null) {
+            _isPlaying = false;
+            _currentProgressSeconds = currentSong.durationSeconds.toDouble();
+          } else {
+            _currentProgressSeconds = 0.0;
+          }
         }
         break;
 
@@ -470,6 +593,14 @@ class MusicPlaybackMediator extends ChangeNotifier implements IPlaybackMediator 
 
       case PlaybackEvent.addSongToMix:
         snippetHandler.addSong(payload as Song);
+        break;
+
+      case PlaybackEvent.toggleShuffle:
+        queueHandler.toggleShuffle();
+        break;
+
+      case PlaybackEvent.cycleRepeatMode:
+        queueHandler.cycleRepeatMode();
         break;
     }
 
@@ -694,9 +825,12 @@ class _AppleMusicMainScreenState extends State<AppleMusicMainScreen> {
   late final MusicPlaybackMediator _mediator;
   final ScrollController _listenScrollController = ScrollController();
   final TextEditingController _inPlaylistSearchController = TextEditingController();
+  final TextEditingController _searchTabController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   int _selectedTabIndex = 0;
   String _inPlaylistSearchQuery = '';
+  String _searchTabQuery = '';
+  String _searchTabFilter = 'Todas';
   String _selectedGenreFilter = 'Todas';
   bool _showScrollToTop = false;
 
@@ -982,6 +1116,7 @@ class _AppleMusicMainScreenState extends State<AppleMusicMainScreen> {
     _listenScrollController.removeListener(_onScrollChanged);
     _listenScrollController.dispose();
     _inPlaylistSearchController.dispose();
+    _searchTabController.dispose();
     _searchFocusNode.dispose();
     _mediator.dispose();
     super.dispose();
@@ -1964,12 +2099,16 @@ class _AppleMusicMainScreenState extends State<AppleMusicMainScreen> {
   // PESTAÑA 4: BIBLIOTECA
   // ---------------------------------------------------------------------------
   Widget _buildLibraryTab() {
+    final upNextSongs = _mediator.queueHandler.queue
+        .where((song) => song.id != _mediator.currentSong.id)
+        .take(3)
+        .toList(growable: false);
     final libraryMenuItems = [
       {'title': 'Playlists', 'icon': Icons.queue_music_rounded},
       {'title': 'Mis DJ Mixes Guardados', 'icon': Icons.tune_rounded},
       {'title': 'Emisoras de Radio Favoritas', 'icon': Icons.radio_rounded},
       {'title': 'Artistas', 'icon': Icons.music_note_rounded},
-      {'title': 'Canciones (+240 canciones)', 'icon': Icons.audiotrack_rounded},
+      {'title': 'Canciones (+${_catalog.length} canciones)', 'icon': Icons.audiotrack_rounded},
     ];
 
     return CustomScrollView(
@@ -2011,6 +2150,50 @@ class _AppleMusicMainScreenState extends State<AppleMusicMainScreen> {
             }).toList(),
           ),
         ),
+        SliverToBoxAdapter(
+          child: Container(
+            margin: const EdgeInsets.fromLTRB(20, 16, 20, 140),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1C1C1E),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.queue_play_next_rounded, color: Color(0xFFFA2D48), size: 18),
+                    SizedBox(width: 8),
+                    Text(
+                      'Cola de reproducción (Demo)',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                if (upNextSongs.isEmpty)
+                  const Text(
+                    'No hay canciones en cola por ahora.',
+                    style: TextStyle(color: Colors.white54, fontSize: 12.5),
+                  )
+                else
+                  ...upNextSongs.map(
+                    (song) => Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Text(
+                        '• ${song.title} — ${song.artist}',
+                        style: const TextStyle(color: Colors.white70, fontSize: 12.5),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -2019,6 +2202,26 @@ class _AppleMusicMainScreenState extends State<AppleMusicMainScreen> {
   // PESTAÑA 5: BUSCAR
   // ---------------------------------------------------------------------------
   Widget _buildSearchTab() {
+    final filteredSongs = _catalog.where((song) {
+      final q = _searchTabQuery.trim().toLowerCase();
+      final isFavorite = _mediator.queueHandler.favoriteSongIds.contains(song.id);
+      final matchesQuery = q.isEmpty ||
+          song.title.toLowerCase().contains(q) ||
+          song.artist.toLowerCase().contains(q) ||
+          song.album.toLowerCase().contains(q) ||
+          '${song.bpm}'.contains(q);
+
+      final matchesFilter = switch (_searchTabFilter) {
+        'Todas' => true,
+        'Favoritas ⭐' => isFavorite,
+        'Focus Tech' => song.genre.toLowerCase().contains('focus tech'),
+        'BPM > 120' => song.bpm > 120,
+        _ => song.genre.toLowerCase().contains(_searchTabFilter.toLowerCase()),
+      };
+
+      return matchesQuery && matchesFilter;
+    }).toList(growable: false);
+
     return CustomScrollView(
       slivers: [
         SliverSafeArea(
@@ -2044,17 +2247,67 @@ class _AppleMusicMainScreenState extends State<AppleMusicMainScreen> {
                     decoration: BoxDecoration(
                       color: const Color(0xFF1C1C1E),
                       borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: _searchTabQuery.isNotEmpty
+                            ? const Color(0xFFFA2D48).withValues(alpha: 0.6)
+                            : Colors.white12,
+                      ),
                     ),
                     padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: const Row(
+                    child: Row(
                       children: [
-                        Icon(Icons.search_rounded, color: Colors.white54, size: 22),
-                        SizedBox(width: 8),
-                        Text(
-                          'Canciones, ritmos, BPM o fragmentos...',
-                          style: TextStyle(color: Colors.white38, fontSize: 15),
+                        const Icon(Icons.search_rounded, color: Colors.white54, size: 22),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: _searchTabController,
+                            style: const TextStyle(color: Colors.white, fontSize: 15),
+                            decoration: const InputDecoration(
+                              hintText: 'Canciones, artistas, álbumes o BPM...',
+                              hintStyle: TextStyle(color: Colors.white38, fontSize: 15),
+                              border: InputBorder.none,
+                            ),
+                            onChanged: (value) => setState(() => _searchTabQuery = value),
+                          ),
                         ),
+                        if (_searchTabQuery.isNotEmpty)
+                          GestureDetector(
+                            onTap: () {
+                              _searchTabController.clear();
+                              setState(() => _searchTabQuery = '');
+                            },
+                            child: const Icon(Icons.cancel_rounded, color: Colors.white54, size: 18),
+                          ),
                       ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    height: 30,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: ['Todas', 'Favoritas ⭐', 'Focus Tech', 'Electrónica', 'Synthwave', 'Hip-Hop', 'BPM > 120'].map((filter) {
+                        final isSelected = _searchTabFilter == filter;
+                        return GestureDetector(
+                          onTap: () => setState(() => _searchTabFilter = filter),
+                          child: Container(
+                            margin: const EdgeInsets.only(right: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: isSelected ? const Color(0xFFFA2D48) : const Color(0xFF2A2A2F),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Text(
+                              filter,
+                              style: TextStyle(
+                                color: isSelected ? Colors.white : Colors.white70,
+                                fontSize: 11,
+                                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ),
+                      }).toList(),
                     ),
                   ),
                 ],
@@ -2062,6 +2315,48 @@ class _AppleMusicMainScreenState extends State<AppleMusicMainScreen> {
             ),
           ),
         ),
+        if (filteredSongs.isEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 140),
+              child: Column(
+                children: [
+                  const Icon(Icons.search_off_rounded, color: Colors.white30, size: 44),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'No hay resultados con ese filtro.',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: () {
+                      _searchTabController.clear();
+                      setState(() {
+                        _searchTabQuery = '';
+                        _searchTabFilter = 'Todas';
+                      });
+                    },
+                    child: const Text('Limpiar búsqueda'),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 6, 20, 140),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  final song = filteredSongs[index];
+                  final isSelected = song.id == _mediator.currentSong.id &&
+                      _mediator.mode == PlaybackMode.standard;
+                  return _buildSongListTile(song, index: index + 1, isSelected: isSelected);
+                },
+                childCount: filteredSongs.length,
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -2135,7 +2430,7 @@ class _AppleMusicMainScreenState extends State<AppleMusicMainScreen> {
                 const SizedBox(width: 8),
                 IconButton(
                   icon: const Icon(Icons.more_horiz_rounded, color: Colors.white38, size: 20),
-                  onPressed: () {},
+                  onPressed: () => _showInfoSnackBar('Opciones de "${song.title}" disponibles en próxima iteración.'),
                 ),
               ],
             ),
@@ -2148,6 +2443,16 @@ class _AppleMusicMainScreenState extends State<AppleMusicMainScreen> {
   // ---------------------------------------------------------------------------
   // MINI-REPRODUCTOR FLOTANTE
   // ---------------------------------------------------------------------------
+  void _showInfoSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 2),
+        backgroundColor: const Color(0xFF2A2A32),
+      ),
+    );
+  }
+
   Widget _buildFloatingMiniPlayer() {
     String modeLabel = '';
     Color modeBadgeColor = Colors.transparent;
@@ -2449,7 +2754,7 @@ class _AppleMusicMainScreenState extends State<AppleMusicMainScreen> {
                                   ),
                                   IconButton(
                                     icon: const Icon(Icons.more_horiz_rounded, color: Colors.white70),
-                                    onPressed: () {},
+                                    onPressed: () => _showInfoSnackBar('Menú ampliado del reproductor próximamente.'),
                                   ),
                                 ],
                               ),
@@ -2556,7 +2861,16 @@ class _AppleMusicMainScreenState extends State<AppleMusicMainScreen> {
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                                 children: [
-                                  IconButton(icon: const Icon(Icons.shuffle_rounded, color: Colors.white38, size: 26), onPressed: () {}),
+                                  IconButton(
+                                    icon: Icon(
+                                      Icons.shuffle_rounded,
+                                      color: _mediator.isShuffleEnabled
+                                          ? const Color(0xFFFA2D48)
+                                          : Colors.white38,
+                                      size: 26,
+                                    ),
+                                    onPressed: () => _mediator.notify(PlaybackEvent.toggleShuffle),
+                                  ),
                                   IconButton(
                                     icon: const Icon(Icons.skip_previous_rounded, color: Colors.white, size: 42),
                                     onPressed: () => _mediator.notify(PlaybackEvent.previousRequested),
@@ -2578,7 +2892,18 @@ class _AppleMusicMainScreenState extends State<AppleMusicMainScreen> {
                                     icon: const Icon(Icons.skip_next_rounded, color: Colors.white, size: 42),
                                     onPressed: () => _mediator.notify(PlaybackEvent.nextRequested),
                                   ),
-                                  IconButton(icon: const Icon(Icons.repeat_rounded, color: Colors.white38, size: 26), onPressed: () {}),
+                                  IconButton(
+                                    icon: Icon(
+                                      _mediator.repeatMode == RepeatMode.one
+                                          ? Icons.repeat_one_rounded
+                                          : Icons.repeat_rounded,
+                                      color: _mediator.repeatMode == RepeatMode.off
+                                          ? Colors.white38
+                                          : const Color(0xFFFA2D48),
+                                      size: 26,
+                                    ),
+                                    onPressed: () => _mediator.notify(PlaybackEvent.cycleRepeatMode),
+                                  ),
                                 ],
                               ),
 

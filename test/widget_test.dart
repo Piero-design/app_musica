@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:app_musica/main.dart';
@@ -37,5 +38,40 @@ void main() {
 
     // Avanzar el tiempo para que el timer del locutor concluya limpiamente
     await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets('Buscar tab and full player controls work', (WidgetTester tester) async {
+    await tester.pumpWidget(const AppleMusicApp());
+
+    // Ir a Buscar y usar búsqueda real
+    await tester.tap(find.text('Buscar').last);
+    await tester.pumpAndSettle();
+
+    final searchField = find.byWidgetPredicate(
+      (widget) => widget is TextField && widget.decoration?.hintText == 'Canciones, artistas, álbumes o BPM...',
+    );
+    expect(searchField, findsOneWidget);
+
+    await tester.enterText(searchField, 'Midnight City');
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Midnight City'), findsWidgets);
+
+    // Abrir reproductor completo desde mini-player
+    await tester.tap(find.text('Midnight City').last);
+    await tester.pumpAndSettle();
+
+    // Favoritos
+    await tester.tap(find.byIcon(Icons.star_rounded).first);
+    await tester.pump();
+    expect(find.byIcon(Icons.star_border_rounded), findsWidgets);
+
+    // Shuffle / Repeat
+    await tester.tap(find.byIcon(Icons.shuffle_rounded).first);
+    await tester.pump();
+    await tester.tap(find.byIcon(Icons.repeat_rounded).first);
+    await tester.pump();
+    await tester.tap(find.byIcon(Icons.repeat_rounded).first);
+    await tester.pump();
+    expect(find.byIcon(Icons.repeat_one_rounded), findsOneWidget);
   });
 }
