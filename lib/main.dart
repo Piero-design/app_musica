@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:audioplayers/audioplayers.dart';
 
 void main() {
   runApp(const AppleMusicApp());
@@ -416,6 +417,7 @@ class MusicPlaybackMediator extends ChangeNotifier implements IPlaybackMediator 
   final QueueHandler queueHandler;
   final SnippetLoopHandler snippetHandler;
   final AiRadioHostHandler radioHandler;
+  final AudioPlayer _audioPlayer = AudioPlayer();
 
   PlaybackMode _mode = PlaybackMode.standard;
   bool _isPlaying = false;
@@ -429,6 +431,32 @@ class MusicPlaybackMediator extends ChangeNotifier implements IPlaybackMediator 
     required this.radioHandler,
   }) {
     _startTicker();
+    _initAudioPlayer();
+  }
+
+  void _initAudioPlayer() {
+    _audioPlayer.setReleaseMode(ReleaseMode.loop);
+    _audioPlayer.setVolume(_volume);
+  }
+
+  Future<void> _syncRealAudio() async {
+    try {
+      if (_isPlaying) {
+        if (radioHandler.isHostSpeaking) {
+          // Si el locutor habla, reproducir la voz del locutor
+          await _audioPlayer.setReleaseMode(ReleaseMode.stop);
+          await _audioPlayer.play(AssetSource('audio/host_speech.wav'));
+        } else {
+          // Música activa
+          await _audioPlayer.setReleaseMode(ReleaseMode.loop);
+          await _audioPlayer.play(AssetSource('audio/synthwave_beat.wav'));
+        }
+      } else {
+        await _audioPlayer.pause();
+      }
+    } catch (_) {
+      // Degradar silenciosamente si el entorno no tiene backend de audio nativo disponible
+    }
   }
 
   // Getters para la interfaz de usuario
@@ -470,6 +498,7 @@ class MusicPlaybackMediator extends ChangeNotifier implements IPlaybackMediator 
   @override
   void dispose() {
     _playbackTicker?.cancel();
+    _audioPlayer.dispose();
     radioHandler.dispose();
     super.dispose();
   }
@@ -480,6 +509,7 @@ class MusicPlaybackMediator extends ChangeNotifier implements IPlaybackMediator 
     switch (event) {
       case PlaybackEvent.playPauseToggled:
         _isPlaying = !_isPlaying;
+        _syncRealAudio();
         break;
 
       case PlaybackEvent.songSelected:
@@ -489,6 +519,7 @@ class MusicPlaybackMediator extends ChangeNotifier implements IPlaybackMediator 
         _currentProgressSeconds = 0.0;
         _isPlaying = true;
         radioHandler.dismissSpeech();
+        _syncRealAudio();
         break;
 
       case PlaybackEvent.mixSnippetSelected:
@@ -498,6 +529,7 @@ class MusicPlaybackMediator extends ChangeNotifier implements IPlaybackMediator 
         _currentProgressSeconds = snippetHandler.currentItem.segment.startSeconds.toDouble();
         _isPlaying = true;
         radioHandler.dismissSpeech();
+        _syncRealAudio();
         break;
 
       case PlaybackEvent.radioStationSelected:
@@ -513,8 +545,12 @@ class MusicPlaybackMediator extends ChangeNotifier implements IPlaybackMediator 
         _isPlaying = true;
 
         if (radioHandler.isAiHostActive) {
-          radioHandler.triggerSpeech(onSpeechFinished: () => notifyListeners());
+          radioHandler.triggerSpeech(onSpeechFinished: () {
+            _syncRealAudio();
+            notifyListeners();
+          });
         }
+        _syncRealAudio();
         break;
 
       case PlaybackEvent.nextRequested:
@@ -527,6 +563,7 @@ class MusicPlaybackMediator extends ChangeNotifier implements IPlaybackMediator 
             queueHandler.selectSong(nextSong);
             _currentProgressSeconds = 0.0;
             _isPlaying = true;
+            _syncRealAudio();
             notifyListeners();
           });
         } else {
@@ -538,6 +575,7 @@ class MusicPlaybackMediator extends ChangeNotifier implements IPlaybackMediator 
             _currentProgressSeconds = 0.0;
           }
         }
+        _syncRealAudio();
         break;
 
       case PlaybackEvent.previousRequested:
@@ -548,6 +586,7 @@ class MusicPlaybackMediator extends ChangeNotifier implements IPlaybackMediator 
           queueHandler.getPreviousSong();
           _currentProgressSeconds = 0.0;
         }
+        _syncRealAudio();
         break;
 
       case PlaybackEvent.progressSeeked:
@@ -556,6 +595,7 @@ class MusicPlaybackMediator extends ChangeNotifier implements IPlaybackMediator 
 
       case PlaybackEvent.volumeChanged:
         _volume = (payload as double);
+        _audioPlayer.setVolume(_volume);
         break;
 
       case PlaybackEvent.favoriteToggled:
@@ -563,11 +603,16 @@ class MusicPlaybackMediator extends ChangeNotifier implements IPlaybackMediator 
         break;
 
       case PlaybackEvent.triggerHostSpeechManually:
-        radioHandler.triggerSpeech(onSpeechFinished: () => notifyListeners());
+        radioHandler.triggerSpeech(onSpeechFinished: () {
+          _syncRealAudio();
+          notifyListeners();
+        });
+        _syncRealAudio();
         break;
 
       case PlaybackEvent.dismissHostSpeech:
         radioHandler.dismissSpeech();
+        _syncRealAudio();
         break;
 
       case PlaybackEvent.toggleAiHostActive:
